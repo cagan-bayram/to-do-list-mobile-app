@@ -19,6 +19,10 @@ type StoredTask = {
 
 const TASKS_STORAGE_KEY = "todo.tasks.v1";
 
+type TaskFilter = "All" | "Active" | "Completed";
+
+const TaskFilters: TaskFilter[] = ["All", "Active", "Completed"];
+
 export default function Index() {
   const [dueDate, setDueDate] = useState(new Date());
   const [showCalendar, setShowCalendar] = useState(false);
@@ -28,6 +32,7 @@ export default function Index() {
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<TaskFilter>("All");
 
   function startEditing(task: Task) {
     setEditingTaskId(task.id);
@@ -174,6 +179,18 @@ export default function Index() {
     }
   }, []);
 
+  const visibleTasks = tasks.filter((task) => {
+    if (filter === "Active") {
+      return !task.completed;
+    }
+
+    if (filter === "Completed") {
+      return task.completed;
+    }
+
+    return true;
+  });
+
   if (!hasLoaded) {
     return (
       <View style={styles.container}>
@@ -196,11 +213,35 @@ export default function Index() {
         onChangeText={setTaskTitle}
       />
 
+      <View
+        style={{flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12}}
+      >
+        {TaskFilters.map((option) => (
+          <Pressable
+            key={option}
+            onPress={() => setFilter(option)}
+            accessibilityRole="button"
+            accessibilityState={{selected: filter === option}}
+            style={{minHeight: 48, justifyContent: "center", paddingHorizontal: 12, borderRadius: 8, backgroundColor: filter === option ? "#0f172a" : "#e2e8f0"}}
+          >
+            <Text
+              style={{color: filter === option ? "#ffffff" : "#0f172a"}}
+            >
+              {option}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
       <ScrollView
         style={{flex: 1}}
         contentContainerStyle={{gap:12, paddingVertical: 12}}
       >
-        {tasks.map((task) => (
+        {visibleTasks.length === 0 && (
+        <Text style={styles.taskText}>{filter === "All" ? "No tasks yet. Add your first one!" : `No ${filter.toLowerCase()} tasks.`}</Text>
+        )}
+        
+        {visibleTasks.map((task) => (
           <View key={task.id} style={styles.task}>
             <Text style={styles.taskText}>{task.title}</Text>
             <Text style={styles.taskText}>Due: {task.dueDate.toLocaleDateString()}</Text>
