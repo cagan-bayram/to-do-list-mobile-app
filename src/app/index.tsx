@@ -7,12 +7,14 @@ type Task = {
   id: number;
   title: string;
   dueDate: Date;
+  completed: boolean;
 };
 
 type StoredTask = {
   id: number;
   title: string;
   dueDate: string;
+  completed?: boolean;
 }
 
 const TASKS_STORAGE_KEY = "todo.tasks.v1";
@@ -66,6 +68,7 @@ export default function Index() {
       id: nextTaskId.current,
       title: title,
       dueDate: dueDate,
+      completed: false,
     };
 
     nextTaskId.current += 1;
@@ -110,6 +113,10 @@ export default function Index() {
     });
   }
 
+  function toggleTask(taskId: number) {
+    setTasks((previousTasks) => previousTasks.map((task) => task.id === taskId ? {...task, completed: !task.completed} : task));
+  }
+
   useEffect(() => {
     if (!hasLoaded) {
       return;
@@ -149,6 +156,7 @@ export default function Index() {
             id: task.id,
             title: task.title,
             dueDate: restoredDate,
+            completed: task.completed === true,
           };
         });
 
@@ -196,6 +204,15 @@ export default function Index() {
           <View key={task.id} style={styles.task}>
             <Text style={styles.taskText}>{task.title}</Text>
             <Text style={styles.taskText}>Due: {task.dueDate.toLocaleDateString()}</Text>
+            <Pressable
+              onPress={() => toggleTask(task.id)}
+              accessibilityLabel={task.title}
+              accessibilityRole="checkbox"
+              accessibilityState={{checked: task.completed}}
+              style={{marginTop: 8, minHeight: 48, justifyContent: "center", padding: 8, borderRadius: 8, backgroundColor: "#e2e8f0"}}
+            >
+              <Text style={styles.taskText}>{task.completed ? "Completed - tap to undo" : "Mark complete"}</Text>
+            </Pressable>
             <Pressable
               style={{marginTop: 8, backgroundColor: "#ef4444", padding: 8, borderRadius: 8}}
               onPress={() => removeTask(task.id)}
