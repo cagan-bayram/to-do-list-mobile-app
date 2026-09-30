@@ -241,7 +241,7 @@ export default function Index() {
         <Text style={styles.taskText}>{filter === "All" ? "No tasks yet. Add your first one!" : `No ${filter.toLowerCase()} tasks.`}</Text>
         )}
         
-        {visibleTasks.map((task) => (
+        {visibleTasks.sort((a,b) => a.dueDate.getTime() - b.dueDate.getTime()).map((task) => (
           <View key={task.id} style={styles.task}>
             <Text style={styles.taskText}>{task.title}</Text>
             <Text style={styles.taskText}>Due: {task.dueDate.toLocaleDateString()}</Text>
