@@ -33,6 +33,7 @@ export default function Index() {
   const [hasLoaded, setHasLoaded] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [filter, setFilter] = useState<TaskFilter>("All");
+  const [searchQuery, setSearchQuery] = useState("");
 
   function startEditing(task: Task) {
     setEditingTaskId(task.id);
@@ -179,15 +180,18 @@ export default function Index() {
     }
   }, []);
 
+  const normalizedSearch = searchQuery.trim().toLowerCase();
   const visibleTasks = tasks.filter((task) => {
+    const matchesSearch = task.title.toLowerCase().includes(normalizedSearch);
+    if (!matchesSearch) {
+      return false;
+    }
+
     if (filter === "Active") {
       return !task.completed;
-    }
-
-    if (filter === "Completed") {
+    } else if (filter === "Completed") {
       return task.completed;
     }
-
     return true;
   });
 
@@ -233,12 +237,32 @@ export default function Index() {
         ))}
       </View>
 
+      {/*Search bar*/}
+      <TextInput
+        style={[styles.task, styles.taskText, {marginTop: 12}]}
+        placeholder="Search a task"
+        placeholderTextColor="#64748b"
+        value={searchQuery}
+        onChangeText={setSearchQuery}
+        autoCapitalize="none"
+        autoCorrect={false}
+        accessibilityLabel="Search tasks"
+      />
+      
+
       <ScrollView
         style={{flex: 1}}
         contentContainerStyle={{gap:12, paddingVertical: 12}}
       >
         {visibleTasks.length === 0 && (
-        <Text style={styles.taskText}>{filter === "All" ? "No tasks yet. Add your first one!" : `No ${filter.toLowerCase()} tasks.`}</Text>
+          <Text style={styles.taskText}>
+            {normalizedSearch !== ""
+              ? "No matching tasks."
+              : filter === "All"
+                ? "No tasks yet. Add your first one!"
+                : `No ${filter.toLowerCase()} tasks.`
+            }
+          </Text>
         )}
         
         {visibleTasks.sort((a,b) => a.dueDate.getTime() - b.dueDate.getTime()).map((task) => (
