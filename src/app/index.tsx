@@ -3,11 +3,14 @@ import Storage from "expo-sqlite/kv-store";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View, AppState } from "react-native";
 
+type TaskPriority = "Low" | "Medium" | "High";
+
 type Task = {
   id: number;
   title: string;
   dueDate: Date;
   completed: boolean;
+  priority: TaskPriority;
 };
 
 type StoredTask = {
@@ -15,6 +18,7 @@ type StoredTask = {
   title: string;
   dueDate: string;
   completed?: boolean;
+  priority?: TaskPriority;
 }
 
 const TASKS_STORAGE_KEY = "todo.tasks.v1";
@@ -22,6 +26,12 @@ const TASKS_STORAGE_KEY = "todo.tasks.v1";
 type TaskFilter = "All" | "Active" | "Completed" | "Overdue";
 
 const TaskFilters: TaskFilter[] = ["All", "Active", "Completed", "Overdue"];
+const taskPriorities: TaskPriority[] = ["Low", "Medium", "High"];
+const priorityColors: Record<TaskPriority, { backgroundColor: string; color: string }> = {
+  Low: { backgroundColor: "#dbeafe", color: "#1e40af" },
+  Medium: { backgroundColor: "#fef3c7", color: "#92400e" },
+  High: { backgroundColor: "#fee2e2", color: "#991b1b" },
+};
 
 function isTaskOverdue(task: Task, today = new Date()) {
   if (task.completed) {
@@ -36,8 +46,10 @@ export default function Index() {
   const [dueDate, setDueDate] = useState(new Date());
   const [showCalendar, setShowCalendar] = useState(false);
   const [taskTitle, setTaskTitle] = useState("");
+  const [taskPriority, setTaskPriority] = useState<TaskPriority>("Medium");
   const [tasks, setTasks] = useState<Task[]>([]);
   const nextTaskId = useRef(1);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
@@ -49,6 +61,7 @@ export default function Index() {
     setEditingTaskId(task.id);
     setTaskTitle(task.title);
     setDueDate(task.dueDate);
+    setTaskPriority(task.priority);
     setShowCalendar(false);
   }
 
@@ -56,6 +69,7 @@ export default function Index() {
     setEditingTaskId(null);
     setTaskTitle("");
     setDueDate(new Date());
+    setTaskPriority("Medium");
     setShowCalendar(false);
   }
 
@@ -69,7 +83,7 @@ export default function Index() {
     if (editingTaskId === null) {
       addTask();
     } else {
-      updateTask(editingTaskId, title, dueDate);
+      updateTask(editingTaskId, title, dueDate, taskPriority);
     }
     resetForm();
   }
@@ -85,6 +99,7 @@ export default function Index() {
       title: title,
       dueDate: dueDate,
       completed: false,
+      priority: taskPriority,
     };
 
     nextTaskId.current += 1;
@@ -119,7 +134,7 @@ export default function Index() {
     );
   }
 
-  function updateTask(taskId: number, newTitle: string, newDueDate: Date) {
+  function updateTask(taskId: number, newTitle: string, newDueDate: Date, newPriority: TaskPriority) {
     const title = newTitle.trim();
     if (title === "") {
       Alert.alert("Task name needed", "Please type a task first.");
@@ -127,7 +142,9 @@ export default function Index() {
     }
     setTasks((previousTasks) =>
       previousTasks.map((task) =>
-        task.id === taskId ? { ...task, title: title, dueDate: newDueDate } : task
+        task.id === taskId
+          ? { ...task, title: title, dueDate: newDueDate, priority: newPriority }
+          : task
       )
     );
 
@@ -184,56 +201,90 @@ export default function Index() {
       return;
     }
 
-    try {
-      Storage.setItemSync(TASKS_STORAGE_KEY, JSON.stringify(tasks));
-      setStorageError(null);
-    } catch {
-      setStorageError("Your latest changes could not be saved on this device. Please try again.");
-    }
+    let cancelled = false;
+
+    // Save snapshots in order so an older write cannot overwrite a newer edit.
+    saveQueue.current = saveQueue.current.then(async () => {
+      try {
+        await Storage.setItem(TASKS_STORAGE_KEY, JSON.stringify(tasks));
+        if (!cancelled) {
+          setStorageError(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setStorageError("Your latest changes could not be saved on this device. Please try again.");
+        }
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [tasks, hasLoaded]);
 
   useEffect(() => {
-    try {
-      const json = Storage.getItemSync(TASKS_STORAGE_KEY);
-      if (json !== null) {
-        const storedTasks: StoredTask[] = JSON.parse(json);
+    let cancelled = false;
 
-        if (!Array.isArray(storedTasks)) {
-          throw new Error("Invalid saved list");
+    async function loadTasks() {
+      try {
+        await saveQueue.current;
+        const json = await Storage.getItem(TASKS_STORAGE_KEY);
+        if (cancelled) {
+          return;
         }
-        const restoredTasks: Task[] = storedTasks.map((task) => {
-          const restoredDate = new Date(task.dueDate);
 
-          if (
-            !Number.isSafeInteger(task.id) ||
-            task.id < 1 ||
-            typeof task.title !== "string" ||
-            typeof task.dueDate !== "string" ||
-            Number.isNaN(restoredDate.getTime())
-          ) {
-            throw new Error("Invalid saved task");
+        if (json !== null) {
+          const storedTasks: StoredTask[] = JSON.parse(json);
+
+          if (!Array.isArray(storedTasks)) {
+            throw new Error("Invalid saved list");
           }
+          const restoredTasks: Task[] = storedTasks.map((task) => {
+            const restoredDate = new Date(task.dueDate);
 
-          return {
-            id: task.id,
-            title: task.title,
-            dueDate: restoredDate,
-            completed: task.completed === true,
-          };
-        });
+            if (
+              !Number.isSafeInteger(task.id) ||
+              task.id < 1 ||
+              typeof task.title !== "string" ||
+              typeof task.dueDate !== "string" ||
+              Number.isNaN(restoredDate.getTime())
+            ) {
+              throw new Error("Invalid saved task");
+            }
 
-        const highestId = restoredTasks.reduce(
-          (highest, task) => Math.max(highest, task.id), 0
-        );
+            return {
+              id: task.id,
+              title: task.title,
+              dueDate: restoredDate,
+              completed: task.completed === true,
+              // Older saved tasks do not have a priority yet.
+              priority: task.priority === "Low" || task.priority === "High"
+                ? task.priority
+                : "Medium",
+            };
+          });
 
-        nextTaskId.current = highestId + 1;
-        setTasks(restoredTasks);
+          const highestId = restoredTasks.reduce(
+            (highest, task) => Math.max(highest, task.id), 0
+          );
+
+          nextTaskId.current = highestId + 1;
+          setTasks(restoredTasks);
+        }
+        setStorageError(null);
+        setHasLoaded(true);
+      } catch {
+        if (!cancelled) {
+          setStorageError("Could not load saved tasks. Please reopen the app to try again.");
+        }
       }
-      setStorageError(null);
-      setHasLoaded(true);
-    } catch {
-      setStorageError("Could not load saved tasks. Please reopen the app to try again.");
     }
+
+    void loadTasks();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const normalizedSearch = searchQuery.trim().toLowerCase();
@@ -274,6 +325,41 @@ export default function Index() {
         value={taskTitle}
         onChangeText={setTaskTitle}
       />
+
+      <View style={styles.priorityField}>
+        <Text style={styles.fieldLabel}>Priority</Text>
+        <View
+          style={styles.priorityOptions}
+          accessibilityRole="radiogroup"
+          accessibilityLabel="Task priority"
+        >
+          {taskPriorities.map((priority) => (
+            <Pressable
+              key={priority}
+              onPress={() => setTaskPriority(priority)}
+              accessibilityRole="radio"
+              accessibilityLabel={`${priority} priority`}
+              accessibilityState={{ checked: taskPriority === priority }}
+              style={[
+                styles.priorityOption,
+                taskPriority === priority && {
+                  backgroundColor: priorityColors[priority].backgroundColor,
+                  borderColor: priorityColors[priority].color,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.priorityOptionText,
+                  taskPriority === priority && { color: priorityColors[priority].color },
+                ]}
+              >
+                {taskPriority === priority ? "✓ " : ""}{priority}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
 
       <View
         style={{flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12}}
@@ -334,6 +420,16 @@ export default function Index() {
               )}
             </View>
             <Text style={styles.taskText}>Due: {task.dueDate.toLocaleDateString()}</Text>
+            <View
+              style={[
+                styles.priorityBadge,
+                { backgroundColor: priorityColors[task.priority].backgroundColor },
+              ]}
+            >
+              <Text style={[styles.priorityBadgeText, { color: priorityColors[task.priority].color }]}>
+                {task.priority} priority
+              </Text>
+            </View>
             <Pressable
               onPress={() => toggleTask(task.id)}
               accessibilityLabel={task.title}
@@ -427,6 +523,49 @@ const styles = StyleSheet.create({
   taskText: {
     fontSize: 16,
     color: "#0f172a",
+  },
+  priorityField: {
+    marginTop: 12,
+    gap: 8,
+  },
+  fieldLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#0f172a",
+  },
+  priorityOptions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  priorityOption: {
+    flexGrow: 1,
+    minWidth: 88,
+    minHeight: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    borderRadius: 8,
+    backgroundColor: "#ffffff",
+  },
+  priorityOptionText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#475569",
+  },
+  priorityBadge: {
+    alignSelf: "flex-start",
+    marginTop: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  priorityBadgeText: {
+    fontSize: 14,
+    fontWeight: "600",
   },
   taskHeader: {
     flexDirection: "row",
