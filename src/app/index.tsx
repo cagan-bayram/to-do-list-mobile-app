@@ -1,7 +1,7 @@
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View, TextInput } from "react-native";
-import {useState, useRef, useEffect} from "react";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Storage from "expo-sqlite/kv-store";
+import { useEffect, useRef, useState } from "react";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View, AppState } from "react-native";
 
 type Task = {
   id: number;
@@ -19,9 +19,18 @@ type StoredTask = {
 
 const TASKS_STORAGE_KEY = "todo.tasks.v1";
 
-type TaskFilter = "All" | "Active" | "Completed";
+type TaskFilter = "All" | "Active" | "Completed" | "Overdue";
 
-const TaskFilters: TaskFilter[] = ["All", "Active", "Completed"];
+const TaskFilters: TaskFilter[] = ["All", "Active", "Completed", "Overdue"];
+
+function isTaskOverdue(task: Task, today = new Date()) {
+  if (task.completed) {
+    return false;
+  }
+
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return task.dueDate < startOfToday;
+}
 
 export default function Index() {
   const [dueDate, setDueDate] = useState(new Date());
@@ -34,6 +43,7 @@ export default function Index() {
   const [storageError, setStorageError] = useState<string | null>(null);
   const [filter, setFilter] = useState<TaskFilter>("All");
   const [searchQuery, setSearchQuery] = useState("");
+  const [today, setToday] = useState(() => new Date());
 
   function startEditing(task: Task) {
     setEditingTaskId(task.id);
@@ -124,6 +134,43 @@ export default function Index() {
   }
 
   useEffect(() => {
+    let midnightTimer: ReturnType<typeof setTimeout> | undefined;
+    function refreshToday() {
+      if (midnightTimer !== undefined) {
+        clearTimeout(midnightTimer);
+      }
+
+      const now = new Date();
+      setToday(now);
+
+      const nextMidnight = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + 1
+      );
+
+      const delay = nextMidnight.getTime() - now.getTime() + 100;
+      midnightTimer = setTimeout(refreshToday, delay);
+    }
+
+    refreshToday();
+
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        refreshToday();
+      }
+    });
+
+    return () => {
+      if (midnightTimer !== undefined) {
+        clearTimeout(midnightTimer);
+      }
+
+      subscription.remove();
+    }
+  }, []);
+
+  useEffect(() => {
     if (!hasLoaded) {
       return;
     }
@@ -191,6 +238,8 @@ export default function Index() {
       return !task.completed;
     } else if (filter === "Completed") {
       return task.completed;
+    } else if (filter === "Overdue") {
+      return isTaskOverdue(task, today);
     }
     return true;
   });
@@ -267,7 +316,14 @@ export default function Index() {
         
         {visibleTasks.sort((a,b) => a.dueDate.getTime() - b.dueDate.getTime()).map((task) => (
           <View key={task.id} style={styles.task}>
-            <Text style={styles.taskText}>{task.title}</Text>
+            <View style={styles.taskHeader}>
+              <Text style={[styles.taskText, styles.taskTitle]}>{task.title}</Text>
+              {isTaskOverdue(task, today) && (
+                <Text style={styles.overdueText} accessibilityLabel="Overdue task">
+                  Overdue
+                </Text>
+              )}
+            </View>
             <Text style={styles.taskText}>Due: {task.dueDate.toLocaleDateString()}</Text>
             <Pressable
               onPress={() => toggleTask(task.id)}
@@ -362,6 +418,20 @@ const styles = StyleSheet.create({
   taskText: {
     fontSize: 16,
     color: "#0f172a",
+  },
+  taskHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  taskTitle: {
+    flex: 1,
+  },
+  overdueText: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#b91c1c",
   },
   additionalTask: {
     marginTop: 12,
