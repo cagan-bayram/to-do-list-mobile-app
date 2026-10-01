@@ -98,16 +98,25 @@ export default function Index() {
       Alert.alert("Task not found", "The task you are trying to remove does not exist.");
       return;
     }
-    if (editingTaskId === taskId) {
-        resetForm();
-    }
-    setTasks((previousTasks) => previousTasks.filter((task) => task.id !== taskId));
-
-    tasks.forEach((task) => {
-      if (task.id === taskId) {
-        Alert.alert("Task removed", `Task "${taskToRemove.title}" has been removed.`);
-      }
-    });
+    Alert.alert(
+      "Deleting a task",
+      `Do you really want to delete "${taskToRemove.title}"?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            if (editingTaskId === taskId) {
+              resetForm();
+            }
+            setTasks((previousTasks) => previousTasks.filter((task) => task.id !== taskId));
+            Alert.alert("Task removed", `Task "${taskToRemove.title}" has been removed.`);
+          },
+        },
+      ],
+      { cancelable: true }
+    );
   }
 
   function updateTask(taskId: number, newTitle: string, newDueDate: Date) {
