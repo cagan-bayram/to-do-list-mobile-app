@@ -2,6 +2,8 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import Storage from "expo-sqlite/kv-store";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View, AppState } from "react-native";
+import ReminderField from "@/components/ReminderField";
+import { defaultReminderDate, requestReminderPermission, restoreReminderDate, syncTaskReminders } from "@/lib/reminders";
 
 type TaskPriority = "Low" | "Medium" | "High";
 
@@ -11,6 +13,7 @@ type Task = {
   dueDate: Date;
   completed: boolean;
   priority: TaskPriority;
+  reminderAt: Date | null;
 };
 
 type StoredTask = {
@@ -19,6 +22,7 @@ type StoredTask = {
   dueDate: string;
   completed?: boolean;
   priority?: TaskPriority;
+  reminderAt?: string | null;
 }
 
 const TASKS_STORAGE_KEY = "todo.tasks.v1";
@@ -47,43 +51,61 @@ export default function Index() {
   const [showCalendar, setShowCalendar] = useState(false);
   const [taskTitle, setTaskTitle] = useState("");
   const [taskPriority, setTaskPriority] = useState<TaskPriority>("Medium");
+  const [reminderAt, setReminderAt] = useState<Date | null>(null);
+  const [requestingReminderPermission, setRequestingReminderPermission] = useState(false);
+  const reminderRequestVersion = useRef(0);
+  const scrollView = useRef<ScrollView>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const nextTaskId = useRef(1);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
+  const [reminderError, setReminderError] = useState<string | null>(null);
+  const [reminderRevision, setReminderRevision] = useState(0);
   const [filter, setFilter] = useState<TaskFilter>("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [today, setToday] = useState(() => new Date());
 
   function startEditing(task: Task) {
+    reminderRequestVersion.current += 1;
+    setRequestingReminderPermission(false);
     setEditingTaskId(task.id);
     setTaskTitle(task.title);
     setDueDate(task.dueDate);
     setTaskPriority(task.priority);
+    setReminderAt(task.completed ? null : task.reminderAt);
     setShowCalendar(false);
+    scrollView.current?.scrollTo({ y: 0, animated: true });
   }
 
   function resetForm() {
+    reminderRequestVersion.current += 1;
+    setRequestingReminderPermission(false);
     setEditingTaskId(null);
     setTaskTitle("");
     setDueDate(new Date());
     setTaskPriority("Medium");
+    setReminderAt(null);
     setShowCalendar(false);
   }
 
   function saveTask() {
+    if (requestingReminderPermission) return;
     const title = taskTitle.trim();
     if (title === "") {
       Alert.alert("Task name needed", "Please type a task first.");
+      return;
+    }
+    if (reminderAt !== null && reminderAt.getTime() <= new Date().getTime()) {
+      Alert.alert("Choose a future reminder", "Select a future date and time, or turn off Remind me.");
       return;
     }
     
     if (editingTaskId === null) {
       addTask();
     } else {
-      updateTask(editingTaskId, title, dueDate, taskPriority);
+      updateTask(editingTaskId, title, dueDate, taskPriority, reminderAt);
     }
     resetForm();
   }
@@ -100,6 +122,7 @@ export default function Index() {
       dueDate: dueDate,
       completed: false,
       priority: taskPriority,
+      reminderAt,
     };
 
     nextTaskId.current += 1;
@@ -134,7 +157,7 @@ export default function Index() {
     );
   }
 
-  function updateTask(taskId: number, newTitle: string, newDueDate: Date, newPriority: TaskPriority) {
+  function updateTask(taskId: number, newTitle: string, newDueDate: Date, newPriority: TaskPriority, newReminderAt: Date | null) {
     const title = newTitle.trim();
     if (title === "") {
       Alert.alert("Task name needed", "Please type a task first.");
@@ -143,7 +166,7 @@ export default function Index() {
     setTasks((previousTasks) =>
       previousTasks.map((task) =>
         task.id === taskId
-          ? { ...task, title: title, dueDate: newDueDate, priority: newPriority }
+          ? { ...task, title: title, dueDate: newDueDate, priority: newPriority, reminderAt: task.completed ? null : newReminderAt }
           : task
       )
     );
@@ -156,8 +179,42 @@ export default function Index() {
   }
 
   function toggleTask(taskId: number) {
-    setTasks((previousTasks) => previousTasks.map((task) => task.id === taskId ? {...task, completed: !task.completed} : task));
+    if (editingTaskId === taskId) {
+      reminderRequestVersion.current += 1;
+      setRequestingReminderPermission(false);
+      setReminderAt(null);
+    }
+    setTasks((previousTasks) => previousTasks.map((task) => task.id === taskId ? {...task, completed: !task.completed, reminderAt: null} : task));
   }
+
+  async function enableReminder() {
+    const requestVersion = ++reminderRequestVersion.current;
+    setRequestingReminderPermission(true);
+    setShowCalendar(false);
+    try {
+      const allowed = await requestReminderPermission();
+      if (requestVersion !== reminderRequestVersion.current) return;
+      if (allowed) {
+        setReminderAt(defaultReminderDate());
+      } else {
+        Alert.alert("Notifications are off", "You can enable notifications in your phone's settings. You can still save tasks without reminders.");
+      }
+    } catch (error) {
+      if (requestVersion === reminderRequestVersion.current) {
+        Alert.alert("Could not enable reminders", error instanceof Error ? error.message : "Please try again.");
+      }
+    } finally {
+      if (requestVersion === reminderRequestVersion.current) {
+        setRequestingReminderPermission(false);
+      }
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      reminderRequestVersion.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     let midnightTimer: ReturnType<typeof setTimeout> | undefined;
@@ -184,6 +241,7 @@ export default function Index() {
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         refreshToday();
+        setReminderRevision((previous) => previous + 1);
       }
     });
 
@@ -214,13 +272,25 @@ export default function Index() {
         if (!cancelled) {
           setStorageError("Your latest changes could not be saved on this device. Please try again.");
         }
+        return;
+      }
+
+      // Reconcile only the latest saved list; stale effects must not recreate reminders.
+      if (cancelled) return;
+      try {
+        await syncTaskReminders(tasks);
+        if (!cancelled) setReminderError(null);
+      } catch (error) {
+        if (!cancelled) {
+          setReminderError(error instanceof Error ? error.message : "Reminders could not be updated. Tap Retry reminders.");
+        }
       }
     });
 
     return () => {
       cancelled = true;
     };
-  }, [tasks, hasLoaded]);
+  }, [tasks, hasLoaded, reminderRevision]);
 
   useEffect(() => {
     let cancelled = false;
@@ -261,6 +331,7 @@ export default function Index() {
               priority: task.priority === "Low" || task.priority === "High"
                 ? task.priority
                 : "Medium",
+              reminderAt: task.completed === true ? null : restoreReminderDate(task.reminderAt),
             };
           });
 
@@ -313,10 +384,28 @@ export default function Index() {
   }
 
   return (
-    <View style={styles.container}>
+    <ScrollView
+      ref={scrollView}
+      style={styles.screen}
+      contentContainerStyle={styles.container}
+      keyboardShouldPersistTaps="handled"
+      automaticallyAdjustKeyboardInsets
+    >
       <Text style={styles.title}>My tasks</Text>
       {storageError !== null && (
         <Text style={styles.taskText}>{storageError}</Text>
+      )}
+      {reminderError !== null && (
+        <View style={styles.reminderError}>
+          <Text style={styles.taskText}>{reminderError}</Text>
+          <Pressable
+            style={styles.secondaryButton}
+            accessibilityRole="button"
+            onPress={() => setReminderRevision((previous) => previous + 1)}
+          >
+            <Text style={styles.taskText}>Retry reminders</Text>
+          </Pressable>
+        </View>
       )}
       <TextInput
         style={[styles.task, styles.taskText]}
@@ -361,6 +450,50 @@ export default function Index() {
         </View>
       </View>
 
+      <ReminderField
+        key={editingTaskId ?? "new-task"}
+        value={reminderAt}
+        onChange={setReminderAt}
+        onEnable={() => void enableReminder()}
+        requestingPermission={requestingReminderPermission}
+        disabled={tasks.some((task) => task.id === editingTaskId && task.completed)}
+      />
+
+      <Pressable
+        style={[styles.task, styles.additionalTask]}
+        accessibilityRole="button"
+        onPress={() => setShowCalendar(true)}
+      >
+        <Text style={styles.taskText}>Due date: {dueDate.toLocaleDateString()}</Text>
+      </Pressable>
+      {showCalendar && (
+        <DateTimePicker
+          value={dueDate}
+          mode="date"
+          onValueChange={(_event, selectedDate) => {
+            setDueDate(selectedDate);
+            setShowCalendar(false);
+          }}
+          onDismiss={() => setShowCalendar(false)}
+        />
+      )}
+
+      <Pressable
+        style={[styles.task, styles.additionalTask, requestingReminderPermission && styles.disabledButton]}
+        onPress={saveTask}
+        disabled={requestingReminderPermission}
+        accessibilityLabel={editingTaskId === null ? "Add a new task" : "Save changes"}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: requestingReminderPermission }}
+      >
+        <Text style={styles.additionalTaskText}>{editingTaskId === null ? "Add a new task" : "Save changes"}</Text>
+      </Pressable>
+      {editingTaskId !== null && (
+        <Pressable style={[styles.task, styles.additionalTask]} onPress={resetForm} accessibilityRole="button">
+          <Text style={styles.taskText}>Cancel editing</Text>
+        </Pressable>
+      )}
+
       <View
         style={{flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12}}
       >
@@ -394,10 +527,7 @@ export default function Index() {
       />
       
 
-      <ScrollView
-        style={{flex: 1}}
-        contentContainerStyle={{gap:12, paddingVertical: 12}}
-      >
+      <View style={styles.taskList}>
         {visibleTasks.length === 0 && (
           <Text style={styles.taskText}>
             {normalizedSearch !== ""
@@ -420,6 +550,13 @@ export default function Index() {
               )}
             </View>
             <Text style={styles.taskText}>Due: {task.dueDate.toLocaleDateString()}</Text>
+            {task.reminderAt !== null && !task.completed && (
+              <Text style={styles.reminderText}>
+                Reminder: {task.reminderAt.toLocaleString([], {
+                  year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+                })}
+              </Text>
+            )}
             <View
               style={[
                 styles.priorityBadge,
@@ -457,58 +594,26 @@ export default function Index() {
             </Pressable>
           </View>
         ))}
-      </ScrollView>
-
-      <Pressable style={[styles.task, styles.additionalTask]} 
-        onPress={saveTask}
-        accessibilityLabel={editingTaskId === null ? "Add a new task" : "Save changes"} 
-        accessibilityRole="button"
-        >
-        <Text style={styles.additionalTaskText}>{editingTaskId === null ? "Add a new task" : "Save changes"}</Text>
-        <Text style={styles.additionalTaskText}>+</Text>
-      </Pressable>
-      {editingTaskId !== null && (
-        <Pressable
-          style={[styles.task, styles.additionalTask]}
-          onPress={resetForm}
-          accessibilityRole="button"
-        >
-          <Text style={styles.taskText}>Cancel editing</Text>
-
-        </Pressable>
-      )}
-
-      <Pressable
-        style={[styles.task, styles.additionalTask]}
-        accessibilityRole="button"
-        onPress={() => setShowCalendar(true)}
-      >
-        <Text style={styles.taskText}>Choose Due Date</Text>
-      </Pressable>
-
-      <Text style={styles.taskText}> Due: {dueDate.toLocaleDateString()}</Text>
-
-      {showCalendar && (
-        <DateTimePicker
-          value={dueDate}
-          mode="date"
-          onValueChange={(_event, selectedDate) => {
-            setDueDate(selectedDate);
-            setShowCalendar(false);
-          }}
-          onDismiss={() => setShowCalendar(false)}
-        />
-      )}
-    </View>
+      </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screen: {
     flex: 1,
+    backgroundColor: "#f1f5f9",
+  },
+  container: {
+    flexGrow: 1,
     padding: 24,
     backgroundColor: "#f1f5f9",
   },
+  taskList: { gap: 12, paddingVertical: 12 },
+  reminderText: { fontSize: 14, color: "#475569", marginTop: 4 },
+  reminderError: { padding: 12, marginBottom: 12, borderRadius: 8, backgroundColor: "#fef3c7", gap: 8 },
+  secondaryButton: { minHeight: 48, justifyContent: "center", padding: 8 },
+  disabledButton: { opacity: 0.5 },
   title: {
     fontSize: 28,
     fontWeight: "bold",
