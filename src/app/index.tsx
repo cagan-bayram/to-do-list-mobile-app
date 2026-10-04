@@ -1,9 +1,13 @@
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Storage from "expo-sqlite/kv-store";
 import { useEffect, useRef, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View, AppState } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View, AppState, Platform, Keyboard } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import AppIcon from "@/components/AppIcon";
 import ReminderField from "@/components/ReminderField";
-import { defaultReminderDate, requestReminderPermission, restoreReminderDate, syncTaskReminders } from "@/lib/reminders";
+import ReminderSetup from "@/components/ReminderSetup";
+import { colors } from "@/constants/theme";
+import { areRemindersReady, defaultReminderDate, restoreReminderDate, syncTaskReminders } from "@/lib/reminders";
 
 type TaskPriority = "Low" | "Medium" | "High";
 
@@ -31,10 +35,10 @@ type TaskFilter = "All" | "Active" | "Completed" | "Overdue";
 
 const TaskFilters: TaskFilter[] = ["All", "Active", "Completed", "Overdue"];
 const taskPriorities: TaskPriority[] = ["Low", "Medium", "High"];
-const priorityColors: Record<TaskPriority, { backgroundColor: string; color: string }> = {
-  Low: { backgroundColor: "#dbeafe", color: "#1e40af" },
-  Medium: { backgroundColor: "#fef3c7", color: "#92400e" },
-  High: { backgroundColor: "#fee2e2", color: "#991b1b" },
+const priorityColors: Record<TaskPriority, { backgroundColor: string; color: string; dot: string }> = {
+  Low: { backgroundColor: "#e8f4ea", color: "#28613a", dot: "#37834c" },
+  Medium: { backgroundColor: "#fff3d8", color: "#805710", dot: "#bb810f" },
+  High: { backgroundColor: "#fcebea", color: "#a13535", dot: "#ce4c4c" },
 };
 
 function isTaskOverdue(task: Task, today = new Date()) {
@@ -47,6 +51,9 @@ function isTaskOverdue(task: Task, today = new Date()) {
 }
 
 export default function Index() {
+  const insets = useSafeAreaInsets();
+  const [showForm, setShowForm] = useState(false);
+  const [reminderSetup, setReminderSetup] = useState<"enable" | "repair" | null>(null);
   const [dueDate, setDueDate] = useState(new Date());
   const [showCalendar, setShowCalendar] = useState(false);
   const [taskTitle, setTaskTitle] = useState("");
@@ -70,6 +77,8 @@ export default function Index() {
   function startEditing(task: Task) {
     reminderRequestVersion.current += 1;
     setRequestingReminderPermission(false);
+    setReminderSetup(null);
+    setShowForm(true);
     setEditingTaskId(task.id);
     setTaskTitle(task.title);
     setDueDate(task.dueDate);
@@ -82,6 +91,8 @@ export default function Index() {
   function resetForm() {
     reminderRequestVersion.current += 1;
     setRequestingReminderPermission(false);
+    setReminderSetup(null);
+    setShowForm(false);
     setEditingTaskId(null);
     setTaskTitle("");
     setDueDate(new Date());
@@ -90,7 +101,7 @@ export default function Index() {
     setShowCalendar(false);
   }
 
-  function saveTask() {
+  async function saveTask() {
     if (requestingReminderPermission) return;
     const title = taskTitle.trim();
     if (title === "") {
@@ -101,6 +112,24 @@ export default function Index() {
       Alert.alert("Choose a future reminder", "Select a future date and time, or turn off Remind me.");
       return;
     }
+    if (reminderAt !== null) {
+      const requestVersion = ++reminderRequestVersion.current;
+      setRequestingReminderPermission(true);
+      try {
+        const ready = await areRemindersReady();
+        if (requestVersion !== reminderRequestVersion.current) return;
+        if (!ready) {
+          Keyboard.dismiss();
+          setReminderSetup("repair");
+          return;
+        }
+      } catch {
+        if (requestVersion === reminderRequestVersion.current) setReminderSetup("repair");
+        return;
+      } finally {
+        if (requestVersion === reminderRequestVersion.current) setRequestingReminderPermission(false);
+      }
+    }
     
     if (editingTaskId === null) {
       addTask();
@@ -108,6 +137,7 @@ export default function Index() {
       updateTask(editingTaskId, title, dueDate, taskPriority, reminderAt);
     }
     resetForm();
+    Keyboard.dismiss();
   }
 
   function addTask() {
@@ -191,17 +221,18 @@ export default function Index() {
     const requestVersion = ++reminderRequestVersion.current;
     setRequestingReminderPermission(true);
     setShowCalendar(false);
+    Keyboard.dismiss();
     try {
-      const allowed = await requestReminderPermission();
+      const allowed = await areRemindersReady();
       if (requestVersion !== reminderRequestVersion.current) return;
       if (allowed) {
         setReminderAt(defaultReminderDate());
       } else {
-        Alert.alert("Notifications are off", "You can enable notifications in your phone's settings. You can still save tasks without reminders.");
+        setReminderSetup("enable");
       }
-    } catch (error) {
+    } catch {
       if (requestVersion === reminderRequestVersion.current) {
-        Alert.alert("Could not enable reminders", error instanceof Error ? error.message : "Please try again.");
+        setReminderSetup("enable");
       }
     } finally {
       if (requestVersion === reminderRequestVersion.current) {
@@ -375,323 +406,305 @@ export default function Index() {
     return true;
   });
 
+  const completedCount = tasks.filter((task) => task.completed).length;
+  const activeCount = tasks.length - completedCount;
+  const progress = tasks.length === 0 ? 0 : completedCount / tasks.length;
+  const contentInsets = { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 32 };
+
   if (!hasLoaded) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.taskText}>{storageError ?? "Loading tasks..."}</Text>
+      <View style={[styles.screen, styles.loading, contentInsets]}>
+        <AppIcon name="list" size={36} color={colors.primary} />
+        <Text style={styles.bodyText}>{storageError ?? "Getting your tasks ready..."}</Text>
       </View>
     );
   }
 
   return (
-    <ScrollView
-      ref={scrollView}
-      style={styles.screen}
-      contentContainerStyle={styles.container}
-      keyboardShouldPersistTaps="handled"
-      automaticallyAdjustKeyboardInsets
-    >
-      <Text style={styles.title}>My tasks</Text>
-      {storageError !== null && (
-        <Text style={styles.taskText}>{storageError}</Text>
-      )}
-      {reminderError !== null && (
-        <View style={styles.reminderError}>
-          <Text style={styles.taskText}>{reminderError}</Text>
-          <Pressable
-            style={styles.secondaryButton}
-            accessibilityRole="button"
-            onPress={() => setReminderRevision((previous) => previous + 1)}
-          >
-            <Text style={styles.taskText}>Retry reminders</Text>
-          </Pressable>
+    <>
+      <ScrollView
+        ref={scrollView}
+        style={styles.screen}
+        contentContainerStyle={[styles.container, contentInsets]}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+      >
+        <View style={styles.header}>
+          <View style={styles.headerText}>
+            <Text style={styles.eyebrow}>{today.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}</Text>
+            <Text style={styles.title} accessibilityRole="header">My tasks<Text style={styles.titleDot}>.</Text></Text>
+            <Text style={styles.subtitle}>{activeCount === 0 ? "A little space to plan your day." : `${activeCount} ${activeCount === 1 ? "thing" : "things"} to do. One at a time.`}</Text>
+          </View>
+          {Platform.OS !== "web" && (
+            <Pressable style={styles.settingsButton} accessibilityRole="button" accessibilityLabel="Reminder settings"
+              onPress={() => { Keyboard.dismiss(); setReminderSetup("repair"); }}>
+              <AppIcon name="bell" color={colors.primary} />
+            </Pressable>
+          )}
         </View>
-      )}
-      <TextInput
-        style={[styles.task, styles.taskText]}
-        placeholder="What needs doing?"
-        placeholderTextColor="#64748b"
-        value={taskTitle}
-        onChangeText={setTaskTitle}
-      />
 
-      <View style={styles.priorityField}>
-        <Text style={styles.fieldLabel}>Priority</Text>
-        <View
-          style={styles.priorityOptions}
-          accessibilityRole="radiogroup"
-          accessibilityLabel="Task priority"
-        >
-          {taskPriorities.map((priority) => (
-            <Pressable
-              key={priority}
-              onPress={() => setTaskPriority(priority)}
-              accessibilityRole="radio"
-              accessibilityLabel={`${priority} priority`}
-              accessibilityState={{ checked: taskPriority === priority }}
-              style={[
-                styles.priorityOption,
-                taskPriority === priority && {
-                  backgroundColor: priorityColors[priority].backgroundColor,
-                  borderColor: priorityColors[priority].color,
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.priorityOptionText,
-                  taskPriority === priority && { color: priorityColors[priority].color },
-                ]}
-              >
-                {taskPriority === priority ? "✓ " : ""}{priority}
-              </Text>
+        {tasks.length > 0 && (
+          <View style={styles.progressCard}>
+            <View style={styles.rowBetween}>
+              <Text style={styles.progressTitle}>{activeCount === 0 ? "All caught up" : "Making progress"}</Text>
+              <Text style={styles.caption}>{completedCount} of {tasks.length} done</Text>
+            </View>
+            <View style={styles.progressTrack} accessible accessibilityRole="progressbar"
+              accessibilityLabel="Tasks completed" accessibilityValue={{ min: 0, max: tasks.length, now: completedCount }}>
+              <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
+            </View>
+          </View>
+        )}
+
+        {storageError !== null && <Text style={styles.errorText} accessibilityRole="alert">{storageError}</Text>}
+        {reminderError !== null && (
+          <View style={styles.warningCard}>
+            <Text style={styles.warningTitle}>Your reminders need attention</Text>
+            <Text style={styles.warningText} accessibilityRole="alert">{reminderError}</Text>
+            <View style={styles.wrappingRow}>
+              <Pressable style={styles.warningButton} accessibilityRole="button" onPress={() => setReminderSetup("repair")}>
+                <Text style={styles.warningTitle}>Set up reminders</Text>
+              </Pressable>
+              <Pressable style={styles.warningButton} accessibilityRole="button" onPress={() => setReminderRevision((previous) => previous + 1)}>
+                <Text style={styles.warningTitle}>Retry reminders</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {!showForm && (
+          <Pressable style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]} accessibilityRole="button"
+            onPress={() => { resetForm(); setShowForm(true); scrollView.current?.scrollTo({ y: 0, animated: true }); }}>
+            <AppIcon name="plus" color="#ffffff" />
+            <Text style={styles.primaryButtonText}>New task</Text>
+          </Pressable>
+        )}
+
+        {showForm && (
+          <View style={styles.formCard}>
+            <View style={styles.rowBetween}>
+              <Text style={styles.sectionTitle} accessibilityRole="header">{editingTaskId === null ? "New task" : "Edit task"}</Text>
+              <Pressable style={styles.iconButton} onPress={resetForm} accessibilityRole="button" accessibilityLabel="Cancel editing">
+                <AppIcon name="close" size={20} color={colors.muted} />
+              </Pressable>
+            </View>
+            <Text style={styles.fieldLabel}>What needs doing?</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. Plan the weekend"
+              placeholderTextColor={colors.muted}
+              value={taskTitle}
+              onChangeText={setTaskTitle}
+              accessibilityLabel="Task name"
+              editable={!requestingReminderPermission}
+            />
+            <Text style={styles.fieldLabel}>Priority</Text>
+            <View style={styles.priorityOptions} accessibilityRole="radiogroup" accessibilityLabel="Task priority">
+              {taskPriorities.map((priority) => (
+                <Pressable key={priority} onPress={() => setTaskPriority(priority)} disabled={requestingReminderPermission}
+                  accessibilityRole="radio" accessibilityLabel={`${priority} priority`}
+                  accessibilityState={{ checked: taskPriority === priority }}
+                  style={[styles.priorityOption, taskPriority === priority && {
+                    backgroundColor: priorityColors[priority].backgroundColor,
+                    borderColor: priorityColors[priority].dot,
+                  }]}>
+                  <View style={[styles.priorityDot, { backgroundColor: priorityColors[priority].dot }]} />
+                  <Text style={[styles.priorityText, { color: priorityColors[priority].color }]}>{priority}</Text>
+                  {taskPriority === priority && <AppIcon name="check" size={14} color={priorityColors[priority].color} />}
+                </Pressable>
+              ))}
+            </View>
+            <Pressable style={styles.dateButton} accessibilityRole="button" onPress={() => setShowCalendar(!showCalendar)} disabled={requestingReminderPermission}>
+              <View style={styles.inlineRow}>
+                <AppIcon name="calendar" size={20} color={colors.primary} />
+                <Text style={styles.bodyText}>Due date</Text>
+              </View>
+              <Text style={styles.dateText}>{dueDate.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}</Text>
+            </Pressable>
+            {showCalendar && (
+              <>
+                <DateTimePicker value={dueDate} mode="date" display={Platform.OS === "ios" ? "spinner" : "default"} themeVariant="light"
+                  onValueChange={(_event, selectedDate) => { setDueDate(selectedDate); if (Platform.OS !== "ios") setShowCalendar(false); }}
+                  onDismiss={() => setShowCalendar(false)} />
+                {Platform.OS === "ios" && (
+                  <Pressable style={styles.secondaryButton} onPress={() => setShowCalendar(false)} accessibilityRole="button">
+                    <Text style={styles.secondaryButtonText}>Done</Text>
+                  </Pressable>
+                )}
+              </>
+            )}
+            <ReminderField key={editingTaskId ?? "new-task"} value={reminderAt} onChange={setReminderAt}
+              onEnable={() => void enableReminder()} requestingPermission={requestingReminderPermission}
+              onSetup={() => setReminderSetup("repair")}
+              disabled={tasks.some((task) => task.id === editingTaskId && task.completed)} />
+            <Pressable style={({ pressed }) => [styles.primaryButton, requestingReminderPermission && styles.disabledButton, pressed && styles.pressed]}
+              onPress={() => void saveTask()} disabled={requestingReminderPermission}
+              accessibilityRole="button" accessibilityState={{ disabled: requestingReminderPermission }}>
+              <AppIcon name={editingTaskId === null ? "plus" : "check"} color="#ffffff" size={20} />
+              <Text style={styles.primaryButtonText}>{requestingReminderPermission ? "Checking reminders..." : editingTaskId === null ? "Add task" : "Save changes"}</Text>
+            </Pressable>
+          </View>
+        )}
+
+        <View style={styles.listHeading}>
+          <Text style={styles.sectionTitle} accessibilityRole="header">Your list</Text>
+          <Text style={styles.caption}>By due date</Text>
+        </View>
+        <View style={styles.searchField}>
+          <AppIcon name="search" size={20} color={colors.muted} />
+          <TextInput style={styles.searchInput} placeholder="Find a task" placeholderTextColor={colors.muted}
+            value={searchQuery} onChangeText={setSearchQuery} autoCapitalize="none" autoCorrect={false}
+            accessibilityLabel="Search tasks" />
+          {searchQuery !== "" && (
+            <Pressable style={styles.iconButton} onPress={() => setSearchQuery("")} accessibilityRole="button" accessibilityLabel="Clear search">
+              <AppIcon name="close" size={18} color={colors.muted} />
+            </Pressable>
+          )}
+        </View>
+        <View style={styles.filters}>
+          {TaskFilters.map((option) => (
+            <Pressable key={option} onPress={() => setFilter(option)} accessibilityRole="button"
+              accessibilityState={{ selected: filter === option }} style={[styles.filter, filter === option && styles.filterSelected]}>
+              <Text style={[styles.filterText, filter === option && styles.filterTextSelected]}>{option}</Text>
             </Pressable>
           ))}
         </View>
-      </View>
 
-      <ReminderField
-        key={editingTaskId ?? "new-task"}
-        value={reminderAt}
-        onChange={setReminderAt}
-        onEnable={() => void enableReminder()}
-        requestingPermission={requestingReminderPermission}
-        disabled={tasks.some((task) => task.id === editingTaskId && task.completed)}
-      />
-
-      <Pressable
-        style={[styles.task, styles.additionalTask]}
-        accessibilityRole="button"
-        onPress={() => setShowCalendar(true)}
-      >
-        <Text style={styles.taskText}>Due date: {dueDate.toLocaleDateString()}</Text>
-      </Pressable>
-      {showCalendar && (
-        <DateTimePicker
-          value={dueDate}
-          mode="date"
-          onValueChange={(_event, selectedDate) => {
-            setDueDate(selectedDate);
-            setShowCalendar(false);
-          }}
-          onDismiss={() => setShowCalendar(false)}
-        />
-      )}
-
-      <Pressable
-        style={[styles.task, styles.additionalTask, requestingReminderPermission && styles.disabledButton]}
-        onPress={saveTask}
-        disabled={requestingReminderPermission}
-        accessibilityLabel={editingTaskId === null ? "Add a new task" : "Save changes"}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: requestingReminderPermission }}
-      >
-        <Text style={styles.additionalTaskText}>{editingTaskId === null ? "Add a new task" : "Save changes"}</Text>
-      </Pressable>
-      {editingTaskId !== null && (
-        <Pressable style={[styles.task, styles.additionalTask]} onPress={resetForm} accessibilityRole="button">
-          <Text style={styles.taskText}>Cancel editing</Text>
-        </Pressable>
-      )}
-
-      <View
-        style={{flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12}}
-      >
-        {TaskFilters.map((option) => (
-          <Pressable
-            key={option}
-            onPress={() => setFilter(option)}
-            accessibilityRole="button"
-            accessibilityState={{selected: filter === option}}
-            style={{minHeight: 48, justifyContent: "center", paddingHorizontal: 12, borderRadius: 8, backgroundColor: filter === option ? "#0f172a" : "#e2e8f0"}}
-          >
-            <Text
-              style={{color: filter === option ? "#ffffff" : "#0f172a"}}
-            >
-              {option}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      {/*Search bar*/}
-      <TextInput
-        style={[styles.task, styles.taskText, {marginTop: 12}]}
-        placeholder="Search a task"
-        placeholderTextColor="#64748b"
-        value={searchQuery}
-        onChangeText={setSearchQuery}
-        autoCapitalize="none"
-        autoCorrect={false}
-        accessibilityLabel="Search tasks"
-      />
-      
-
-      <View style={styles.taskList}>
-        {visibleTasks.length === 0 && (
-          <Text style={styles.taskText}>
-            {normalizedSearch !== ""
-              ? "No matching tasks."
-              : filter === "All"
-                ? "No tasks yet. Add your first one!"
-                : `No ${filter.toLowerCase()} tasks.`
-            }
-          </Text>
-        )}
-        
-        {visibleTasks.sort((a,b) => a.dueDate.getTime() - b.dueDate.getTime()).map((task) => (
-          <View key={task.id} style={styles.task}>
-            <View style={styles.taskHeader}>
-              <Text style={[styles.taskText, styles.taskTitle]}>{task.title}</Text>
-              {isTaskOverdue(task, today) && (
-                <Text style={styles.overdueText} accessibilityLabel="Overdue task">
-                  Overdue
-                </Text>
-              )}
+        <View style={styles.taskList}>
+          {visibleTasks.length === 0 && (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIcon}><AppIcon name={normalizedSearch ? "search" : "list"} size={32} color={colors.primary} /></View>
+              <Text style={styles.sectionTitle}>{normalizedSearch ? "Nothing found" : filter === "All" ? "A clear space" : `No ${filter.toLowerCase()} tasks`}</Text>
+              <Text style={styles.emptyText}>{normalizedSearch ? "Try a different word or another filter." : filter === "All" ? "Start with one small thing. Add your first task above." : "Your tasks will appear here when they match this filter."}</Text>
             </View>
-            <Text style={styles.taskText}>Due: {task.dueDate.toLocaleDateString()}</Text>
-            {task.reminderAt !== null && !task.completed && (
-              <Text style={styles.reminderText}>
-                Reminder: {task.reminderAt.toLocaleString([], {
-                  year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-                })}
-              </Text>
-            )}
-            <View
-              style={[
-                styles.priorityBadge,
-                { backgroundColor: priorityColors[task.priority].backgroundColor },
-              ]}
-            >
-              <Text style={[styles.priorityBadgeText, { color: priorityColors[task.priority].color }]}>
-                {task.priority} priority
-              </Text>
+          )}
+          {visibleTasks.sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime()).map((task) => (
+            <View key={task.id} style={[styles.taskCard, task.completed && styles.completedCard]}>
+              <View style={styles.taskTop}>
+                <Pressable onPress={() => toggleTask(task.id)} accessibilityRole="checkbox"
+                  accessibilityLabel={`${task.completed ? "Reopen" : "Complete"} ${task.title}`}
+                  accessibilityState={{ checked: task.completed }} style={styles.completionTarget}>
+                  <View style={[styles.completionCircle, task.completed && styles.completionCircleChecked]}>
+                    {task.completed && <AppIcon name="check" size={19} color="#ffffff" />}
+                  </View>
+                </Pressable>
+                <View style={styles.taskDetails}>
+                  <Text style={[styles.taskTitle, task.completed && styles.completedTitle]}>{task.title}</Text>
+                  <View style={styles.metadataRow}>
+                    <AppIcon name="calendar" size={15} color={isTaskOverdue(task, today) ? colors.danger : colors.muted} />
+                    <Text style={[styles.caption, styles.flexText, isTaskOverdue(task, today) && styles.overdueText]}>
+                      {task.dueDate.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}
+                      {isTaskOverdue(task, today) ? " · Overdue" : ""}
+                    </Text>
+                  </View>
+                  {task.reminderAt !== null && !task.completed && (
+                    <View style={styles.metadataRow}>
+                      <AppIcon name="bell" size={15} color={colors.muted} />
+                      <Text style={[styles.caption, styles.flexText]}>Reminder: {task.reminderAt.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+              <View style={styles.taskFooter}>
+                <View style={[styles.priorityBadge, { backgroundColor: priorityColors[task.priority].backgroundColor }]}>
+                  <View style={[styles.smallDot, { backgroundColor: priorityColors[task.priority].dot }]} />
+                  <Text style={[styles.badgeText, { color: priorityColors[task.priority].color }]}>{task.priority}</Text>
+                </View>
+                <View style={styles.taskActions}>
+                  <Pressable style={styles.taskAction} onPress={() => startEditing(task)} accessibilityRole="button" accessibilityLabel={`Edit ${task.title}`}>
+                    <AppIcon name="edit" size={17} color={colors.muted} /><Text style={styles.actionText}>Edit</Text>
+                  </Pressable>
+                  <Pressable style={styles.taskAction} onPress={() => removeTask(task.id)} accessibilityRole="button" accessibilityLabel={`Delete ${task.title}`}>
+                    <AppIcon name="trash" size={17} color={colors.danger} /><Text style={[styles.actionText, styles.overdueText]}>Delete</Text>
+                  </Pressable>
+                </View>
+              </View>
             </View>
-            <Pressable
-              onPress={() => toggleTask(task.id)}
-              accessibilityLabel={task.title}
-              accessibilityRole="checkbox"
-              accessibilityState={{checked: task.completed}}
-              style={{marginTop: 8, minHeight: 48, justifyContent: "center", padding: 8, borderRadius: 8, backgroundColor: "#e2e8f0"}}
-            >
-              <Text style={styles.taskText}>{task.completed ? "Completed - tap to undo" : "Mark complete"}</Text>
-            </Pressable>
-            <Pressable
-              style={{marginTop: 8, backgroundColor: "#ef4444", padding: 8, borderRadius: 8}}
-              onPress={() => removeTask(task.id)}
-              accessibilityLabel={`Remove task ${task.title}`}
-              accessibilityRole="button"
-            >
-              <Text style={{color: "#ffffff"}}>Remove</Text>
-            </Pressable>
-            <Pressable
-              style={{marginTop: 8, backgroundColor: "#3b82f6", padding: 8, borderRadius: 8}}
-              onPress={() => startEditing(task)}
-              accessibilityLabel={`Update task ${task.title}`}
-              accessibilityRole="button"
-            >
-              <Text style={{color: "#ffffff"}}>Update</Text>
-            </Pressable>
-          </View>
-        ))}
-      </View>
-    </ScrollView>
+          ))}
+        </View>
+      </ScrollView>
+      {reminderSetup !== null && (
+        <ReminderSetup onClose={() => setReminderSetup(null)} onReady={() => {
+          if (reminderSetup === "enable") setReminderAt(defaultReminderDate());
+          setReminderSetup(null);
+          setReminderRevision((previous) => previous + 1);
+        }} />
+      )}
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: "#f1f5f9",
-  },
-  container: {
-    flexGrow: 1,
-    padding: 24,
-    backgroundColor: "#f1f5f9",
-  },
-  taskList: { gap: 12, paddingVertical: 12 },
-  reminderText: { fontSize: 14, color: "#475569", marginTop: 4 },
-  reminderError: { padding: 12, marginBottom: 12, borderRadius: 8, backgroundColor: "#fef3c7", gap: 8 },
-  secondaryButton: { minHeight: 48, justifyContent: "center", padding: 8 },
-  disabledButton: { opacity: 0.5 },
-  title: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#0f172a",
-    marginBottom: 24,
-  },
-  task: {
-    padding: 16,
-    backgroundColor: "#ffffff",
-    borderRadius: 12,
-  },
-  taskText: {
-    fontSize: 16,
-    color: "#0f172a",
-  },
-  priorityField: {
-    marginTop: 12,
-    gap: 8,
-  },
-  fieldLabel: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#0f172a",
-  },
-  priorityOptions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  priorityOption: {
-    flexGrow: 1,
-    minWidth: 88,
-    minHeight: 48,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 8,
-    backgroundColor: "#ffffff",
-  },
-  priorityOptionText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#475569",
-  },
-  priorityBadge: {
-    alignSelf: "flex-start",
-    marginTop: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  priorityBadgeText: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  taskHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  taskTitle: {
-    flex: 1,
-  },
-  overdueText: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: "#b91c1c",
-  },
-  additionalTask: {
-    marginTop: 12,
-  },
-  additionalTaskText: {
-    fontSize: 24,
-    color: "#0f172a",
-    textAlign: "center",
-  },
+  screen: { flex: 1, backgroundColor: colors.background },
+  container: { flexGrow: 1, paddingHorizontal: 20, width: "100%", maxWidth: 640, alignSelf: "center", gap: 16 },
+  loading: { alignItems: "center", justifyContent: "center", padding: 24, gap: 16 },
+  header: { flexDirection: "row", alignItems: "center", gap: 12 },
+  headerText: { flex: 1 },
+  eyebrow: { color: colors.muted, fontSize: 13, fontWeight: "500", marginBottom: 6 },
+  title: { color: colors.ink, fontSize: 38, fontWeight: "700", letterSpacing: -1.5 },
+  titleDot: { color: colors.primary },
+  subtitle: { color: colors.muted, fontSize: 15, lineHeight: 22, marginTop: 4 },
+  settingsButton: { width: 48, height: 48, borderRadius: 16, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface },
+  progressCard: { backgroundColor: colors.primarySoft, padding: 18, borderRadius: 20, gap: 12 },
+  rowBetween: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  progressTitle: { fontSize: 15, fontWeight: "600", color: colors.primary },
+  progressTrack: { height: 6, borderRadius: 3, backgroundColor: "#cbded0", overflow: "hidden" },
+  progressFill: { height: 6, borderRadius: 3, backgroundColor: colors.primary },
+  caption: { color: colors.muted, fontSize: 13, lineHeight: 20 },
+  primaryButton: { minHeight: 54, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 16, backgroundColor: colors.primary, flexDirection: "row", gap: 8, justifyContent: "center", alignItems: "center" },
+  primaryButtonText: { fontSize: 16, fontWeight: "600", color: "#ffffff", flexShrink: 1 },
+  pressed: { opacity: 0.8 },
+  disabledButton: { opacity: 0.45 },
+  formCard: { padding: 18, borderRadius: 24, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: 12 },
+  sectionTitle: { color: colors.ink, fontSize: 20, fontWeight: "600", flexShrink: 1 },
+  fieldLabel: { fontSize: 14, fontWeight: "600", color: colors.ink },
+  input: { minHeight: 54, borderWidth: 1, borderColor: colors.border, borderRadius: 14, backgroundColor: colors.background, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: colors.ink },
+  priorityOptions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  priorityOption: { flexGrow: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, minHeight: 48, paddingHorizontal: 10, paddingVertical: 10, borderWidth: 1, borderColor: colors.border, borderRadius: 12 },
+  priorityDot: { width: 9, height: 9, borderRadius: 5 },
+  priorityText: { fontSize: 13, fontWeight: "600" },
+  dateButton: { minHeight: 52, flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center", justifyContent: "space-between", padding: 12, borderRadius: 14, backgroundColor: colors.background },
+  inlineRow: { flexDirection: "row", gap: 8, alignItems: "center" },
+  bodyText: { fontSize: 15, color: colors.ink, lineHeight: 22 },
+  dateText: { fontSize: 14, fontWeight: "600", color: colors.primary },
+  secondaryButton: { minHeight: 48, alignItems: "center", justifyContent: "center" },
+  secondaryButtonText: { fontSize: 15, fontWeight: "600", color: colors.primary },
+  listHeading: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 8 },
+  searchField: { flexDirection: "row", alignItems: "center", paddingLeft: 14, paddingRight: 4, gap: 10, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, borderRadius: 16 },
+  searchInput: { flex: 1, minWidth: 0, minHeight: 52, fontSize: 15, color: colors.ink, paddingVertical: 12 },
+  iconButton: { minWidth: 48, minHeight: 48, alignItems: "center", justifyContent: "center" },
+  filters: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  filter: { minHeight: 48, paddingHorizontal: 13, paddingVertical: 12, alignItems: "center", justifyContent: "center", borderRadius: 24 },
+  filterSelected: { backgroundColor: colors.ink },
+  filterText: { fontSize: 13, fontWeight: "600", color: colors.muted },
+  filterTextSelected: { color: "#ffffff" },
+  taskList: { gap: 12 },
+  emptyState: { alignItems: "center", paddingVertical: 32, paddingHorizontal: 24, gap: 12 },
+  emptyIcon: { width: 68, height: 68, borderRadius: 24, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
+  emptyText: { color: colors.muted, fontSize: 15, lineHeight: 23, textAlign: "center", maxWidth: 280 },
+  taskCard: { backgroundColor: colors.surface, borderRadius: 20, borderWidth: 1, borderColor: colors.border, padding: 14, gap: 10 },
+  completedCard: { backgroundColor: "#eef2ed" },
+  taskTop: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  completionTarget: { width: 48, height: 48, alignItems: "center", justifyContent: "center" },
+  completionCircle: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: "#92a298", alignItems: "center", justifyContent: "center" },
+  completionCircleChecked: { backgroundColor: colors.primary, borderColor: colors.primary },
+  taskDetails: { flex: 1, minWidth: 0, paddingTop: 10, gap: 7 },
+  taskTitle: { fontSize: 17, fontWeight: "600", lineHeight: 24, color: colors.ink },
+  completedTitle: { textDecorationLine: "line-through", color: colors.muted },
+  metadataRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  flexText: { flexShrink: 1 },
+  overdueText: { color: colors.danger },
+  taskFooter: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 4 },
+  priorityBadge: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20 },
+  smallDot: { width: 6, height: 6, borderRadius: 3 },
+  badgeText: { fontSize: 12, fontWeight: "600" },
+  taskActions: { flexDirection: "row", gap: 4, flexWrap: "wrap" },
+  taskAction: { minHeight: 48, paddingHorizontal: 8, flexDirection: "row", gap: 5, alignItems: "center", justifyContent: "center" },
+  actionText: { color: colors.muted, fontSize: 13, fontWeight: "500" },
+  errorText: { color: colors.danger, fontSize: 14, lineHeight: 22 },
+  warningCard: { backgroundColor: colors.warningSoft, borderRadius: 18, padding: 16, gap: 8 },
+  warningTitle: { color: colors.warning, fontSize: 14, fontWeight: "600" },
+  warningText: { color: colors.warning, fontSize: 14, lineHeight: 22 },
+  wrappingRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  warningButton: { minHeight: 48, justifyContent: "center", paddingHorizontal: 8 },
 });

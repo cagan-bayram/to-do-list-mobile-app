@@ -1,5 +1,6 @@
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
+import { canScheduleExactAlarms, needsAlarmPermission } from "../../modules/reminder-settings";
 
 const CHANNEL_ID = "task-reminders";
 const IDENTIFIER_PREFIX = "todo.task-reminder.";
@@ -37,6 +38,24 @@ function hasPermission(permission: Notifications.NotificationPermissionsStatus) 
     ].includes(permission.ios.status);
   }
   return permission.granted;
+}
+
+export async function getReminderPermissions() {
+  const permission = await Notifications.getPermissionsAsync();
+  const channel = Platform.OS === "android"
+    ? await Notifications.getNotificationChannelAsync(CHANNEL_ID)
+    : null;
+  return {
+    notifications: hasPermission(permission) && channel?.importance !== Notifications.AndroidImportance.NONE,
+    canAskAgain: !hasPermission(permission) && permission.canAskAgain,
+    // Notification permission and exact-alarm access are separate Android settings.
+    alarms: await canScheduleExactAlarms(),
+  };
+}
+
+export async function areRemindersReady() {
+  const permission = await getReminderPermissions();
+  return permission.notifications && permission.alarms;
 }
 
 async function prepareChannel() {
@@ -92,6 +111,19 @@ export async function syncTaskReminders(tasks: readonly ReminderTask[]) {
       .map((task) => [`${IDENTIFIER_PREFIX}${task.id}`, task] as const)
   );
   const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  const hasFutureReminders = [...desired.values()].some(
+    (task) => task.reminderAt !== null && task.reminderAt.getTime() > now
+  );
+  // Still allow deletion/cancellation if special access is missing or unavailable.
+  let alarmAccess = false;
+  let alarmCheckError: unknown;
+  if (hasFutureReminders) {
+    try {
+      alarmAccess = await canScheduleExactAlarms();
+    } catch (error) {
+      alarmCheckError = error;
+    }
+  }
   const matching = new Set<string>();
   const failedCancellations = new Set<string>();
 
@@ -101,7 +133,10 @@ export async function syncTaskReminders(tasks: readonly ReminderTask[]) {
     if (
       task &&
       notification.content.title === task.title &&
-      notification.content.data?.reminderAt === task.reminderAt?.toISOString()
+      notification.content.data?.reminderAt === task.reminderAt?.toISOString() &&
+      // Upgrade future alarms scheduled before permission was granted; leave delayed past ones alone.
+      (!needsAlarmPermission || !alarmAccess || (task.reminderAt?.getTime() ?? 0) <= now ||
+        notification.content.data?.exactAlarm === true)
     ) {
       matching.add(notification.identifier);
       continue;
@@ -124,6 +159,10 @@ export async function syncTaskReminders(tasks: readonly ReminderTask[]) {
     if (!hasPermission(await Notifications.getPermissionsAsync())) {
       throw new Error("Notifications are turned off. Enable them in your phone's settings, then tap Retry reminders.");
     }
+    if (alarmCheckError) throw alarmCheckError;
+    if (!alarmAccess) {
+      throw new Error("Allow Alarms & reminders to finish reminder setup. Without it, reminders may arrive late.");
+    }
 
     for (const [identifier, task] of futureReminders) {
       if (matching.has(identifier) || failedCancellations.has(identifier)) continue;
@@ -136,7 +175,7 @@ export async function syncTaskReminders(tasks: readonly ReminderTask[]) {
             title: task.title,
             body: "Your task reminder is due.",
             sound: "default",
-            data: { taskId: task.id, reminderAt: task.reminderAt.toISOString() },
+            data: { taskId: task.id, reminderAt: task.reminderAt.toISOString(), exactAlarm: true },
           },
           trigger: {
             type: Notifications.SchedulableTriggerInputTypes.DATE,
