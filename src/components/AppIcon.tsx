@@ -12,6 +12,7 @@ const symbols = {
   trash: { ios: "trash", android: "delete", web: "delete" },
   close: { ios: "xmark", android: "close", web: "close" },
   arrow: { ios: "arrow.up.right", android: "open_in_new", web: "open_in_new" },
+  back: { ios: "chevron.left", android: "arrow_back", web: "arrow_back" },
   list: { ios: "checklist", android: "checklist", web: "checklist" },
 } satisfies Record<string, SymbolViewProps["name"]>;
 

@@ -1,38 +1,37 @@
 {
   "expo": {
-    "name": "to-do",
+    "name": "ToDoo",
     "slug": "to-do",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/branding/todoo-icon.png",
     "scheme": "todo",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/branding/todoo-icon.png"
     },
     "android": {
       "permissions": ["android.permission.SCHEDULE_EXACT_ALARM"],
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#245b45",
+        "foregroundImage": "./assets/branding/todoo-foreground.png",
+        "monochromeImage": "./assets/branding/todoo-foreground.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.caganbayram.todo"
+      "package": "com.caganardaozkan.todoo"
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/branding/todoo-icon.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "backgroundColor": "#245b45",
+          "image": "./assets/branding/todoo-foreground.png",
+          "imageWidth": 220
         }
       ],
       "@react-native-community/datetimepicker",

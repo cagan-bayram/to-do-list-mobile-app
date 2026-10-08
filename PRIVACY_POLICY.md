@@ -1,0 +1,53 @@
+# ToDoo Privacy Policy
+
+Last updated: 5 October 2026
+
+ToDoo is a personal task-list app developed by Çağan Arda Özkan. Your tasks are stored on your device. ToDoo does not operate a task-storage server, require an account, or include advertising or analytics tracking. This policy explains the current mobile app and any support messages you choose to send.
+
+## Information you add to ToDoo
+
+ToDoo stores the task titles, due dates, priorities, completion states and optional reminder dates and times that you enter. This information is used to display, search, sort and update your task list and schedule your reminders.
+
+Task information is stored in the app's private storage on your device. ToDoo does not send your task contents to the developer or provide its own cloud sync service. Search terms are used to filter your list and are not sent to a server.
+
+## Reminders and permissions
+
+If you enable reminders, ToDoo asks for notification permission. On supported Android versions, it also asks you to allow Alarms & reminders so the operating system can schedule reminders at the time you select. You can change these permissions in your device settings. Task-list features remain available without reminders.
+
+Reminders are local notifications handled by your device's operating system. ToDoo does not send task reminders through a developer-operated push server. A reminder includes the task title and may appear on your lock screen; you can control notification previews in your device settings. The date picker does not access your device's calendar events.
+
+## Device backups and app stores
+
+Your operating system may include ToDoo's stored data in device backups or device-to-device transfers, depending on your settings and device. On Android, this may include backups provided by Google. These services are controlled by your device or backup provider, not by ToDoo, and the developer cannot access your device backups.
+
+Google Play, Apple and your device provider may process installation, diagnostic or other service information under their own privacy policies and your settings. The developer may receive the installation statistics or diagnostic reports those platforms make available. ToDoo does not include a separate analytics, advertising or crash-reporting service that sends your task contents to the developer.
+
+## Email support
+
+If you email the developer, the developer receives your email address and any name, message, screenshots or other information you choose to include. This information is used to respond to your request and investigate the issue you report. Only include task contents or other personal information if you want to share them for support.
+
+Support email is processed through Microsoft Outlook and the email providers involved in delivering your message. Support correspondence is kept only as long as needed to handle the request and meet any applicable record-keeping obligations. You can contact the developer to request access, correction or deletion of your support correspondence.
+
+## Sharing and selling information
+
+The developer does not sell or rent your personal information or use it for targeted advertising. Task contents are not shared by ToDoo with the developer or advertising companies. Information you send for support is handled by the email providers described above and may be disclosed if required by applicable law.
+
+## Keeping and deleting your data
+
+Your saved task list remains on your device until you change or delete it. You can edit or delete individual tasks within ToDoo. To remove the app's local data, use your device's clear-storage option, where available, or uninstall the app. Notifications already delivered may need to be dismissed separately.
+
+Device backups may retain earlier copies according to the backup provider's settings and retention rules. Restoring a backup can restore older task data. Manage or delete those backups through your device or backup provider. The developer cannot access, recover or delete your locally stored tasks remotely.
+
+## Security
+
+ToDoo relies on the operating system's safeguards for its private app storage. Use a device lock, keep your device updated and choose notification-preview settings appropriate for the information in your tasks. Support correspondence is protected by the access controls provided by the developer's email service.
+
+## Changes to this policy
+
+This policy will be updated if ToDoo's data practices change. The current version and its last-updated date are available within the app. Features such as accounts, cloud sync, analytics or subscriptions would require reviewing and updating this policy before they are introduced.
+
+## Contact
+
+Çağan Arda Özkan
+
+[cagansoftwareengineering@outlook.com](mailto:cagansoftwareengineering@outlook.com)

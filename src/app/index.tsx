@@ -1,5 +1,6 @@
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Storage from "expo-sqlite/kv-store";
+import { Link } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View, AppState, Platform, Keyboard } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -432,7 +433,7 @@ export default function Index() {
         <View style={styles.header}>
           <View style={styles.headerText}>
             <Text style={styles.eyebrow}>{today.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}</Text>
-            <Text style={styles.title} accessibilityRole="header">My tasks<Text style={styles.titleDot}>.</Text></Text>
+            <Text style={styles.title} accessibilityRole="header">ToDoo<Text style={styles.titleDot}>.</Text></Text>
             <Text style={styles.subtitle}>{activeCount === 0 ? "A little space to plan your day." : `${activeCount} ${activeCount === 1 ? "thing" : "things"} to do. One at a time.`}</Text>
           </View>
           {Platform.OS !== "web" && (
@@ -622,6 +623,14 @@ export default function Index() {
             </View>
           ))}
         </View>
+        <View style={styles.footer}>
+          <Text style={styles.caption}>ToDoo</Text>
+          <Link href="/privacy" asChild>
+            <Pressable style={styles.privacyLink} accessibilityRole="link">
+              <Text style={styles.privacyLinkText}>Privacy policy</Text>
+            </Pressable>
+          </Link>
+        </View>
       </ScrollView>
       {reminderSetup !== null && (
         <ReminderSetup onClose={() => setReminderSetup(null)} onReady={() => {
@@ -707,4 +716,7 @@ const styles = StyleSheet.create({
   warningText: { color: colors.warning, fontSize: 14, lineHeight: 22 },
   wrappingRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   warningButton: { minHeight: 48, justifyContent: "center", paddingHorizontal: 8 },
+  footer: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8 },
+  privacyLink: { minHeight: 48, justifyContent: "center", paddingHorizontal: 4 },
+  privacyLinkText: { color: colors.primary, fontSize: 14, fontWeight: "600", textDecorationLine: "underline" },
 });

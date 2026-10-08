@@ -43,7 +43,9 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "privacy:export": "node scripts/export-privacy-policy.cjs",
+    "branding:export": "node scripts/export-branding.cjs"
   },
   "private": true
 }

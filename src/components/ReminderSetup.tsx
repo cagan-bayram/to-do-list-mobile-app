@@ -107,7 +107,7 @@ export default function ReminderSetup({ onClose, onReady }: {
             {needsAlarmPermission && (
               <View style={styles.step}>
                 <Text style={styles.stepTitle}>2. Alarms &amp; reminders {status?.alarms ? "— enabled" : ""}</Text>
-                <Text style={styles.description}>Open settings, turn on “Allow setting alarms and reminders” for this app, then come back here. If a list opens, choose to-do.</Text>
+                <Text style={styles.description}>Open settings, turn on “Allow setting alarms and reminders” for this app, then come back here. If a list opens, choose ToDoo.</Text>
                 {status?.alarms ? (
                   <View style={styles.enabled}><AppIcon name="check" color={colors.primary} /><Text style={styles.enabledText}>Ready</Text></View>
                 ) : (
