@@ -3,7 +3,7 @@ import Storage from "expo-sqlite/kv-store";
 import { Link } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View, AppState, Platform, Keyboard } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import AppIcon from "@/components/AppIcon";
 import ReminderField from "@/components/ReminderField";
 import ReminderSetup from "@/components/ReminderSetup";
@@ -410,19 +410,21 @@ export default function Index() {
   const completedCount = tasks.filter((task) => task.completed).length;
   const activeCount = tasks.length - completedCount;
   const progress = tasks.length === 0 ? 0 : completedCount / tasks.length;
-  const contentInsets = { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 32 };
+  const contentInsets = { paddingTop: 24, paddingBottom: insets.bottom + 32 };
 
   if (!hasLoaded) {
     return (
-      <View style={[styles.screen, styles.loading, contentInsets]}>
-        <AppIcon name="list" size={36} color={colors.primary} />
-        <Text style={styles.bodyText}>{storageError ?? "Getting your tasks ready..."}</Text>
-      </View>
+      <SafeAreaView edges={["top"]} style={styles.screen}>
+        <View style={[styles.loading, { paddingTop: 24, paddingBottom: insets.bottom + 24 }]}>
+          <AppIcon name="list" size={36} color={colors.primary} />
+          <Text style={styles.bodyText}>{storageError ?? "Getting your tasks ready..."}</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <>
+    <SafeAreaView edges={["top"]} style={styles.screen}>
       <ScrollView
         ref={scrollView}
         style={styles.screen}
@@ -639,7 +641,7 @@ export default function Index() {
           setReminderRevision((previous) => previous + 1);
         }} />
       )}
-    </>
+    </SafeAreaView>
   );
 }
 
